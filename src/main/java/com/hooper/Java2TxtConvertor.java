@@ -22,7 +22,7 @@ public class Java2TxtConvertor {
         return javaFilePath.substring(javaFilePath.lastIndexOf(File.separator) + 1, javaFilePath.lastIndexOf("."));
     }
 
-    /**
+    /**“‘
      * 将java文件转为txt文件
      * @param javaFilePath java文件路径
      * @param txtFilePath txt文件路径，如果为null，则默认为java文件所在目录下
