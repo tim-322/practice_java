@@ -4,8 +4,7 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class CodeComparator {
 
@@ -16,8 +15,10 @@ public class CodeComparator {
         CONSTANTS = readConstantsFromFile(CONSTANT_FILE_PATH);
     }
 
-    public static void main(String[] args) {
-        System.out.println(containsConstant("dasCommonConstant.RET_CODE.OKsadASdasdRET_CODE.ERRORasdasdasdASsdsdSDsdAS"));
+    public static void main(String[] args) throws Exception {
+        List<String> diffList = getDiffFromConstants("/Users/felix/IdeaProjects/practice/src/main/java/com/hooper/TestConstantOrg.java",
+                "/Users/felix/IdeaProjects/practice/src/main/java/com/hooper/TestConstantModified.java");
+        diffList.forEach(System.out::println);
     }
 
     public static Map<String, String> readConstantsFromFile(String filePath) {
@@ -48,93 +49,84 @@ public class CodeComparator {
         return constantsMap;
     }
 
-    public static List<String> findConstantClasses(List<String> codeLines) {
-        List<String> constantClasses = new ArrayList<>();
-        String regex = "[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)+"; // Matches constant class patterns
-        Pattern pattern = Pattern.compile(regex);
 
-        for (String codeLine : codeLines) {
-            Matcher matcher = pattern.matcher(codeLine);
-            while (matcher.find()) {
-                String constantClass = matcher.group();
-                constantClasses.add(constantClass);
+    public static List<String> getDiffFromConstants(String orgPath, String modifiedPath) throws Exception {
+        BufferedReader orgReader = new BufferedReader(new FileReader(orgPath));
+        BufferedReader modifiedReader = new BufferedReader(new FileReader(modifiedPath));
+        String orgLine = null;
+        String modifiedLine = null;
+        List<String> diffList = new ArrayList<>();
+        List<String> orgLines = new ArrayList<>(), modifiedLines = new ArrayList<>();
+        while ((orgLine = orgReader.readLine()) != null) {
+            orgLines.add(orgLine.trim());
+        }
+        while ((modifiedLine = modifiedReader.readLine()) != null) {
+            modifiedLines.add(modifiedLine.trim());
+        }
+        orgLines = filterList(orgLines);
+        modifiedLines = filterList(modifiedLines);
+        int orgIdx = 0, modifiedIdx = 0;
+        while (orgIdx < orgLines.size() && modifiedIdx < modifiedLines.size()) {
+            String org = orgLines.get(orgIdx++);
+            String modified = modifiedLines.get(modifiedIdx++);
+            if (org.equals(modified)) continue;
+            Set<String> modifiedConstSet = getConstantFromLine(modified);
+            if (modifiedConstSet.isEmpty()) {
+                diffList.add(modified + "-->" + org);
+                continue;
             }
+            System.out.println("替换前:" + modified);
+            for (String s : modifiedConstSet) {
+                modified = modified.replace(s, CONSTANTS.get(s));
+            }
+            System.out.println("替换后:" + modified);
+            if (!contentSame(org, modified)) {
+                diffList.add(modified + "   -->  " + org);
+            }
+
         }
 
-        return constantClasses;
+        return diffList;
     }
 
-    public static List<String> getDiffFromConstants(String filePath) {
-        try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
-            String line;
-            int lineNum = 0;
-            while ((line = reader.readLine()) != null) {
-                lineNum++;
-                if (line.contains("CommonConstant")) {
-                    String constantName = line.split("CommonConstant.")[1].split("\\.")[1];
-                    String constantValue = CONSTANTS.get(constantName);
-                    if (constantValue != null) {
-                        if (line.contains(constantValue)) {
-                            System.out.println("Found constant: " + constantName + " in file: " + filePath);
-                        } else {
-                            System.out.println("Found constant: " + constantName + " in file: " + filePath + ", but the value is different.");
-                        }
-                    } else {
-                        System.out.println("Found constant: " + constantName + " in file: " + filePath + ", but not found in CommonConstant.java");
-                    }
-                }
+    public static boolean contentSame(String l1, String l2) {
+        return l1.replace(" ", "").equals(l2.replace(" ", ""));
+    }
+
+    public static List<String> filterList(List<String> list) {
+        return list.stream().filter(line -> {
+            if (line.startsWith("import") || line.startsWith("package") || line.startsWith("public class") || line.startsWith("public interface")) {
+                return false;
             }
-        } catch (IOException e) {
-            System.err.println("Failed to read file: " + filePath);
-        }
-        return null;
+            return line.length() != 0 && !line.equals("\n");
+        }).collect(Collectors.toList());
     }
 
-    public static String containsConstant(String line) {
-        int bigLetterCount = 0, max = 0;
-        int startIdx = 0, endIdx = 0;
-        int preStartIdx = 0;
+    public static Set<String> getConstantFromLine(String line) {
+        int bigLetterCount = 0;
+        int startIdx = 0;
+        Set<String> constSet = new HashSet<>();
         for (int i = 0; i < line.length(); i++) {
             char c = line.charAt(i);
-            if (Character.isUpperCase(c) || c == '_' || c =='.') {
-                if (c =='.' && bigLetterCount == 0){
+            if (Character.isUpperCase(c) || c == '_' || c == '.') {
+                if (c == '.' && bigLetterCount == 0) {
                     continue;
                 }
                 if (bigLetterCount == 0)
                     startIdx = i;
                 bigLetterCount++;
             } else {
-                if (bigLetterCount > max) {
-                    max = bigLetterCount;
-                    preStartIdx = startIdx;
-                    endIdx = i;
+                if (bigLetterCount > 4) {
+                    String constant = line.substring(startIdx, i);
+                    if (constant.endsWith(".")) constant = line.substring(startIdx, i - 1);
+                    if (CONSTANTS.containsKey(constant)) {
+                        constSet.add(constant);
+                    }
                 }
                 bigLetterCount = 0;
             }
         }
-        if (startIdx > endIdx){
-            startIdx = preStartIdx;
-        }
-        return max >= 4 ? line.substring(startIdx, endIdx) : null;
-
+        return constSet;
     }
-//    public static boolean containsConstantCall(String inputString) {
-//        // 正则表达式匹配模式 "XXXX.XXXX"，其中点号两边至少有一个大写字母
-//        String regex = "\\b[A-Za-z]*\\.[A-Za-z]+\\b";
-//
-//        Pattern pattern = Pattern.compile(regex);
-//        Matcher matcher = pattern.matcher(inputString);
-//
-//        return matcher.find();
-//    }
 
-    public static boolean containsConstantCall(String inputString) {
-        // 正则表达式匹配模式 "XXX.XXX"，其中连边都是全大写字母（可以含有下划线）
-        String regex = "\\b[A-Z_]+\\.[A-Z_]+\\b";
-
-        Pattern pattern = Pattern.compile(regex);
-        Matcher matcher = pattern.matcher(inputString);
-
-        return matcher.find();
-    }
 }
